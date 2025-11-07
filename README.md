@@ -4,7 +4,7 @@
       <img alt="AnimeHi" src="https://raw.githubusercontent.com/itzzzme/zenime/refs/heads/main/public/logo.png" width="220"/>
     </a>
   </div>
-    <h3 align="center">Zenime - Ad free anime streaming platform</h3>
+    <h3 align="center">Zenime - anime streaming platform</h3>
     <p align="center">
   <a href="https://github.com/itzzzme/zenime">
       <img src="https://img.shields.io/github/stars/itzzzme/zenime" alt="Github Stars">
