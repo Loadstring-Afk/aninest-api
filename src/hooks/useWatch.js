@@ -54,12 +54,20 @@ export const useWatch = (animeId, initialEpisodeId) => {
         setEpisodes(epData?.episodes);
         setTotalEpisodes(epData?.totalEpisodes);
 
-        const ep =
-          initialEpisodeId ||
-          epData?.episodes?.[0]?.id.match(/ep=(\d+)/)?.[1];
-
-        setEpisodeId(ep);
+        // Extract episode ID from initialEpisodeId or first episode
+        if (initialEpisodeId) {
+          // If initialEpisodeId is provided, use it directly
+          setEpisodeId(initialEpisodeId);
+        } else if (epData?.episodes?.[0]?.id) {
+          // Extract episode ID from the episode object
+          const firstEp = epData.episodes[0];
+          const epMatch = firstEp.id.match(/ep=(\d+)/);
+          if (epMatch) {
+            setEpisodeId(epMatch[1]);
+          }
+        }
       } catch (e) {
+        console.error("Failed to load anime:", e);
         setError("Failed to load anime");
       } finally {
         setAnimeInfoLoading(false);
@@ -78,7 +86,10 @@ export const useWatch = (animeId, initialEpisodeId) => {
   /* ================= ACTIVE EP NUM ================= */
   useEffect(() => {
     if (!episodes || !episodeId) return;
-    const ep = episodes.find(e => e.id.includes(`ep=${episodeId}`));
+    const ep = episodes.find(e => {
+      const epMatch = e.id.match(/ep=(\d+)/);
+      return epMatch && epMatch[1] === String(episodeId);
+    });
     setActiveEpisodeNum(ep?.episode_no ?? null);
   }, [episodeId, episodes]);
 
@@ -88,6 +99,7 @@ export const useWatch = (animeId, initialEpisodeId) => {
 
     setServerLoading(true);
 
+    // Server configurations based on the new API documentation
     const list = [
       {
         id: "megaplay-sub",
@@ -115,12 +127,14 @@ export const useWatch = (animeId, initialEpisodeId) => {
       },
     ];
 
+    // Load saved server preferences
     const savedName = localStorage.getItem("server_name");
     const savedType = localStorage.getItem("server_type");
 
+    // Find initial server based on saved preferences
     const initial =
       list.find(s => s.name === savedName && s.type === savedType) ||
-      list.find(s => s.type === savedType) ||
+      list.find(s => s.type === (savedType || "sub")) ||
       list[0];
 
     setServers(list);
@@ -130,7 +144,7 @@ export const useWatch = (animeId, initialEpisodeId) => {
     setServerLoading(false);
   }, [episodeId]);
 
-  /* ================= BUILD IFRAME URL ================= */
+  /* ================= BUILD IFRAME/STREAM URL ================= */
   useEffect(() => {
     if (!episodeId || !activeServerId) return;
 
@@ -138,24 +152,34 @@ export const useWatch = (animeId, initialEpisodeId) => {
     const server = servers.find(s => s.id === activeServerId);
     if (!server) return;
 
-    const url = `${server.domain}/stream/s-2/${episodeId}/${activeServerType}`;
+    // Build URL according to the new API documentation
+    // Format: https://domain/stream/s-2/{episodeId}/{language}
+    const url = `${server.domain}/stream/s-2/${episodeId}/${server.type}`;
 
     setStreamUrl(url);
-    setStreamInfo({ embed: true });
+    setStreamInfo({ 
+      embed: true,
+      streamingLink: {
+        iframe: url
+      }
+    });
 
+    // Save preferences
     localStorage.setItem("server_name", server.name);
-    localStorage.setItem("server_type", activeServerType);
+    localStorage.setItem("server_type", server.type);
 
     setBuffering(false);
-  }, [episodeId, activeServerId, activeServerType, servers]);
+  }, [episodeId, activeServerId, servers]);
 
   /* ================= AUTO NEXT ================= */
   const goNextEpisode = () => {
     if (!episodes || !activeEpisodeNum) return;
     const next = episodes.find(e => e.episode_no === activeEpisodeNum + 1);
     if (next) {
-      const ep = next.id.match(/ep=(\d+)/)?.[1];
-      setEpisodeId(ep);
+      const epMatch = next.id.match(/ep=(\d+)/);
+      if (epMatch) {
+        setEpisodeId(epMatch[1]);
+      }
     }
   };
 
@@ -181,5 +205,7 @@ export const useWatch = (animeId, initialEpisodeId) => {
     setAutoNext,
     nextEpisodeSchedule,
     goNextEpisode,
+    animeInfoLoading,
+    serverLoading,
   };
 };
