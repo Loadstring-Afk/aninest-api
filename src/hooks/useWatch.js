@@ -16,7 +16,10 @@ export const useWatch = (animeId, initialEpisodeId) => {
 
   const [servers, setServers] = useState([]);
   const [streamUrl, setStreamUrl] = useState(null);
-  const [streamInfo, setStreamInfo] = useState({ embed: true });
+  const [streamInfo, setStreamInfo] = useState({ 
+    embed: true,
+    streamingLink: { iframe: null }
+  });
 
   const [episodeId, setEpisodeId] = useState(null);
   const [activeEpisodeNum, setActiveEpisodeNum] = useState(null);
@@ -36,6 +39,7 @@ export const useWatch = (animeId, initialEpisodeId) => {
     setActiveEpisodeNum(null);
     setStreamUrl(null);
     setServers([]);
+    setStreamInfo({ embed: true, streamingLink: { iframe: null } });
     setError(null);
   }, [animeId]);
 
@@ -56,10 +60,8 @@ export const useWatch = (animeId, initialEpisodeId) => {
 
         // Extract episode ID from initialEpisodeId or first episode
         if (initialEpisodeId) {
-          // If initialEpisodeId is provided, use it directly
           setEpisodeId(initialEpisodeId);
         } else if (epData?.episodes?.[0]?.id) {
-          // Extract episode ID from the episode object
           const firstEp = epData.episodes[0];
           const epMatch = firstEp.id.match(/ep=(\d+)/);
           if (epMatch) {
