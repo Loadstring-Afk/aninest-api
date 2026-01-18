@@ -18,6 +18,8 @@ export const useWatch = (animeId, initialEpisodeId) => {
   const [streamUrl, setStreamUrl] = useState(null);
   const [streamInfo, setStreamInfo] = useState({ 
     embed: true,
+    // Add this to indicate it's an embed iframe
+    isEmbedIframe: true,
     streamingLink: { iframe: null }
   });
 
@@ -39,7 +41,11 @@ export const useWatch = (animeId, initialEpisodeId) => {
     setActiveEpisodeNum(null);
     setStreamUrl(null);
     setServers([]);
-    setStreamInfo({ embed: true, streamingLink: { iframe: null } });
+    setStreamInfo({ 
+      embed: true,
+      isEmbedIframe: true,
+      streamingLink: { iframe: null }
+    });
     setError(null);
   }, [animeId]);
 
@@ -58,7 +64,6 @@ export const useWatch = (animeId, initialEpisodeId) => {
         setEpisodes(epData?.episodes);
         setTotalEpisodes(epData?.totalEpisodes);
 
-        // Extract episode ID from initialEpisodeId or first episode
         if (initialEpisodeId) {
           setEpisodeId(initialEpisodeId);
         } else if (epData?.episodes?.[0]?.id) {
@@ -101,7 +106,6 @@ export const useWatch = (animeId, initialEpisodeId) => {
 
     setServerLoading(true);
 
-    // Server configurations based on the new API documentation
     const list = [
       {
         id: "megaplay-sub",
@@ -129,11 +133,9 @@ export const useWatch = (animeId, initialEpisodeId) => {
       },
     ];
 
-    // Load saved server preferences
     const savedName = localStorage.getItem("server_name");
     const savedType = localStorage.getItem("server_type");
 
-    // Find initial server based on saved preferences
     const initial =
       list.find(s => s.name === savedName && s.type === savedType) ||
       list.find(s => s.type === (savedType || "sub")) ||
@@ -154,19 +156,17 @@ export const useWatch = (animeId, initialEpisodeId) => {
     const server = servers.find(s => s.id === activeServerId);
     if (!server) return;
 
-    // Build URL according to the new API documentation
-    // Format: https://domain/stream/s-2/{episodeId}/{language}
     const url = `${server.domain}/stream/s-2/${episodeId}/${server.type}`;
 
     setStreamUrl(url);
     setStreamInfo({ 
       embed: true,
+      isEmbedIframe: true,
       streamingLink: {
         iframe: url
       }
     });
 
-    // Save preferences
     localStorage.setItem("server_name", server.name);
     localStorage.setItem("server_type", server.type);
 
