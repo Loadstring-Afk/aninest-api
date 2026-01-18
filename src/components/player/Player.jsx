@@ -71,6 +71,7 @@ export default function Player({
   const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState(
     episodes?.findIndex((episode) => episode.id.match(/ep=(\d+)/)?.[1] === episodeId)
   );
+  const [isIframeMode, setIsIframeMode] = useState(false);
 
   useEffect(() => {
     if (episodes?.length > 0) {
@@ -80,6 +81,15 @@ export default function Player({
       setCurrentEpisodeIndex(newIndex);
     }
   }, [episodeId, episodes]);
+
+  // Check if URL is an iframe embed URL
+  useEffect(() => {
+    if (streamUrl) {
+      // Check if it's a Megaplay or Vidwish URL (iframe embed)
+      const isEmbedUrl = streamUrl.includes('megaplay.buzz') || streamUrl.includes('vidwish.live');
+      setIsIframeMode(isEmbedUrl);
+    }
+  }, [streamUrl]);
 
   useEffect(() => {
     const applyChapterStyles = () => {
@@ -251,6 +261,36 @@ export default function Player({
   useEffect(() => {
     if (!streamUrl || !artRef.current) return;
 
+    // If it's an iframe URL (Megaplay/Vidwish), handle it differently
+    if (isIframeMode) {
+      const container = artRef.current;
+      
+      // Clear any existing content
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+      
+      // Create iframe
+      const iframe = document.createElement('iframe');
+      iframe.src = streamUrl;
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      iframe.style.background = 'black';
+      iframe.allowFullscreen = true;
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+      
+      container.appendChild(iframe);
+      
+      // Cleanup
+      return () => {
+        if (container.contains(iframe)) {
+          container.removeChild(iframe);
+        }
+      };
+    }
+
+    // Original Artplayer setup for m3u8 streams
     const iframeUrl = streamInfo?.streamingLink?.iframe;
     const headers = {
       referer: iframeUrl ? new URL(iframeUrl).origin + "/" : window.location.origin + "/",
@@ -638,7 +678,12 @@ export default function Player({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamUrl, subtitles, intro, outro]);
+  }, [streamUrl, subtitles, intro, outro, isIframeMode]);
+
+  // If we're in iframe mode, render a simple container
+  if (isIframeMode) {
+    return <div ref={artRef} className="w-full h-full bg-black" />;
+  }
 
   return <div ref={artRef} className="w-full h-full" />;
 }
