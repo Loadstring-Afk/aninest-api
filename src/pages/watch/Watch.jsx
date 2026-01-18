@@ -24,19 +24,18 @@ import Watchcontrols from "@/src/components/watchcontrols/Watchcontrols";
 import useWatchControl from "@/src/hooks/useWatchControl";
 
 function Tag({ bgColor, index, icon, text }) {
-    return (
-      <div
-        className={`flex space-x-1 justify-center items-center px-[4px] py-[1px] text-black font-semibold text-[13px] ${
-          index === 0 ? "rounded-l-[4px]" : "rounded-none"
-        }`}
-        style={{ backgroundColor: bgColor }}
-      >
-        {icon && <FontAwesomeIcon icon={icon} className="text-[12px]" />}
-        <p className="text-[12px]">{text}</p>
-      </div>
-    );
-  }
-
+  return (
+    <div
+      className={`flex space-x-1 justify-center items-center px-[4px] py-[1px] text-black font-semibold text-[13px] ${
+        index === 0 ? "rounded-l-[4px]" : "rounded-none"
+      }`}
+      style={{ backgroundColor: bgColor }}
+    >
+      {icon && <FontAwesomeIcon icon={icon} className="text-[12px]" />}
+      <p className="text-[12px]">{text}</p>
+    </div>
+  );
+}
 
 export default function Watch() {
   const location = useLocation();
@@ -49,8 +48,10 @@ export default function Watch() {
   const { homeInfo } = useHomeInfo();
   const isFirstSet = useRef(true);
   const [showNextEpisodeSchedule, setShowNextEpisodeSchedule] = useState(true);
+  const [isFullOverview, setIsFullOverview] = useState(false);
+  
   const {
-    // error,
+    error,
     buffering,
     streamInfo,
     animeInfo,
@@ -58,8 +59,6 @@ export default function Watch() {
     nextEpisodeSchedule,
     animeInfoLoading,
     totalEpisodes,
-    isFullOverview,
-    setIsFullOverview,
     activeEpisodeNum,
     streamUrl,
     subtitles,
@@ -74,6 +73,7 @@ export default function Watch() {
     servers,
     serverLoading,
   } = useWatch(animeId, initialEpisodeId);
+  
   const {
     autoPlay,
     setAutoPlay,
@@ -83,23 +83,30 @@ export default function Watch() {
     setAutoNext,
   } = useWatchControl();
 
+  // Handle episode navigation and URL updates
   useEffect(() => {
     if (!episodes || episodes.length === 0) return;
-    
+
+    // Extract episode ID from episode objects for comparison
     const isValidEpisode = episodes.some(ep => {
-      const epNumber = ep.id.split('ep=')[1];
-      return epNumber === episodeId; 
+      const epMatch = ep.id.match(/ep=(\d+)/);
+      return epMatch && epMatch[1] === String(episodeId);
     });
-    
-    // If missing or invalid episodeId, fallback to first
+
+    // If missing or invalid episodeId, fallback to first episode
     if (!episodeId || !isValidEpisode) {
-      const fallbackId = episodes[0].id.match(/ep=(\d+)/)?.[1];
-      if (fallbackId && fallbackId !== episodeId) {
-        setEpisodeId(fallbackId);
+      const firstEp = episodes[0];
+      const epMatch = firstEp.id.match(/ep=(\d+)/);
+      if (epMatch) {
+        const fallbackId = epMatch[1];
+        if (fallbackId !== episodeId) {
+          setEpisodeId(fallbackId);
+        }
       }
       return;
     }
-  
+
+    // Update URL with episode parameter
     const newUrl = `/watch/${animeId}?ep=${episodeId}`;
     if (isFirstSet.current) {
       navigate(newUrl, { replace: true });
@@ -107,7 +114,6 @@ export default function Watch() {
     } else {
       navigate(newUrl);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [episodeId, animeId, navigate, episodes]);
 
   // Update document title
@@ -118,37 +124,16 @@ export default function Watch() {
     return () => {
       document.title = `${website_name} | Free anime streaming platform`;
     };
-  }, [animeId]);
+  }, [animeInfo]);
 
   // Redirect if no episodes
   useEffect(() => {
     if (totalEpisodes !== null && totalEpisodes === 0) {
       navigate(`/${animeId}`);
     }
-  }, [streamInfo, episodeId, animeId, totalEpisodes, navigate]);
+  }, [totalEpisodes, animeId, navigate]);
 
-  // useEffect(() => {
-  //   const adjustHeight = () => {
-  //     if (window.innerWidth > 1200) {
-  //       const player = document.querySelector(".player");
-  //       const episodes = document.querySelector(".episodes");
-  //       if (player && episodes) {
-  //         episodes.style.height = `${player.clientHeight}px`;
-  //       }
-  //     } else {
-  //       const episodes = document.querySelector(".episodes");
-  //       if (episodes) {
-  //         episodes.style.height = "auto";
-  //       }
-  //     }
-  //   };
-  //   adjustHeight();
-  //   window.addEventListener("resize", adjustHeight);
-  //   return () => {
-  //     window.removeEventListener("resize", adjustHeight);
-  //   };
-  // },[]);
-
+  // Handle responsive height adjustments
   useEffect(() => {
     let ro = null;
     let mo = null;
@@ -209,6 +194,7 @@ export default function Watch() {
     };
   }, [buffering, episodes]);
 
+  // Update tags based on anime info
   useEffect(() => {
     setTags([
       {
@@ -234,17 +220,23 @@ export default function Watch() {
         text: animeInfo?.animeInfo?.tvInfo?.dub,
       },
     ]);
-  }, [animeId, animeInfo]);
+  }, [animeInfo]);
+
+  // Handle play next function for Player component
+  const playNext = (nextEpisodeId) => {
+    setEpisodeId(nextEpisodeId);
+  };
+
   return (
     <div className="w-full h-fit flex flex-col justify-center items-center relative">
       <div className="w-full relative max-[1400px]:px-[30px] max-[1200px]:px-[80px] max-[1024px]:px-0">
         <img
           src={
-            !animeInfoLoading
-              ? `${animeInfo?.poster}`
+            !animeInfoLoading && animeInfo?.poster
+              ? `${animeInfo.poster}`
               : "https://i.postimg.cc/rFZnx5tQ/2-Kn-Kzog-md.webp"
           }
-          alt={`${animeInfo?.title} Poster`}
+          alt={`${animeInfo?.title || 'Anime'} Poster`}
           className="absolute inset-0 w-full h-full object-cover filter grayscale z-[-900]"
         />
         <div className="absolute inset-0 bg-[#3a3948] bg-opacity-80 backdrop-blur-md z-[-800]"></div>
@@ -288,7 +280,7 @@ export default function Watch() {
             </div>
             <div className="player w-full h-fit bg-black flex flex-col">
               <div className="w-full relative h-[480px] max-[1400px]:h-[40vw] max-[1200px]:h-[48vw] max-[1024px]:h-[58vw] max-[600px]:h-[65vw]">
-                {!buffering ? (
+                {!buffering && streamUrl ? (
                   <Player
                     streamUrl={streamUrl}
                     subtitles={subtitles}
@@ -300,7 +292,7 @@ export default function Watch() {
                     autoNext={autoNext}
                     episodeId={episodeId}
                     episodes={episodes}
-                    playNext={(id) => setEpisodeId(id)}
+                    playNext={playNext}
                     animeInfo={animeInfo}
                     episodeNum={activeEpisodeNum}
                     streamInfo={streamInfo}
@@ -310,9 +302,9 @@ export default function Watch() {
                     <BouncingLoader />
                   </div>
                 )}
-                <p className="text-center underline font-medium text-[15px] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                  {!buffering && !streamInfo ? (
-                    servers ? (
+                {!buffering && !streamUrl && (
+                  <p className="text-center underline font-medium text-[15px] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                    {servers ? (
                       <>
                         Probably this server is down, try other servers
                         <br />
@@ -324,12 +316,12 @@ export default function Watch() {
                         <br />
                         Either reload or try again after sometime
                       </>
-                    )
-                  ) : null}
-                </p>
+                    )}
+                  </p>
+                )}
               </div>
 
-              {!buffering && (
+              {!buffering && streamUrl && (
                 <Watchcontrols
                   autoPlay={autoPlay}
                   setAutoPlay={setAutoPlay}
@@ -424,7 +416,7 @@ export default function Watch() {
           <div className="flex flex-col gap-y-4 items-start ml-8 max-[1400px]:ml-0 max-[1400px]:mt-10 max-[1400px]:flex-row max-[1400px]:gap-x-6 max-[1024px]:px-[30px] max-[1024px]:mt-8 max-[500px]:mt-4 max-[500px]:px-4">
             {animeInfo && animeInfo?.poster ? (
               <img
-                src={`${animeInfo?.poster}`}
+                src={`${animeInfo.poster}`}
                 alt=""
                 className="w-[100px] h-[150px] object-cover max-[500px]:w-[70px] max-[500px]:h-[90px]"
               />
@@ -434,7 +426,7 @@ export default function Watch() {
             <div className="flex flex-col gap-y-4 justify-start">
               {animeInfo && animeInfo?.title ? (
                 <p className="text-[26px] font-medium leading-6 max-[500px]:text-[18px]">
-                  {language ? animeInfo?.title : animeInfo?.japanese_title}
+                  {language ? animeInfo.title : animeInfo.japanese_title}
                 </p>
               ) : (
                 <Skeleton className="w-[170px] h-[20px] rounded-xl" />
@@ -479,11 +471,11 @@ export default function Watch() {
                   <div className="max-h-[150px] overflow-hidden">
                     <div className="max-h-[110px] mt-2 overflow-y-auto">
                       <p className="text-[14px] font-[400]">
-                        {animeInfo?.animeInfo?.Overview.length > 270 ? (
+                        {animeInfo.animeInfo.Overview.length > 270 ? (
                           <>
                             {isFullOverview
-                              ? animeInfo?.animeInfo?.Overview
-                              : `${animeInfo?.animeInfo?.Overview.slice(
+                              ? animeInfo.animeInfo.Overview
+                              : `${animeInfo.animeInfo.Overview.slice(
                                   0,
                                   270
                                 )}...`}
@@ -495,7 +487,7 @@ export default function Watch() {
                             </span>
                           </>
                         ) : (
-                          animeInfo?.animeInfo?.Overview
+                          animeInfo.animeInfo.Overview
                         )}
                       </p>
                     </div>
@@ -543,14 +535,14 @@ export default function Watch() {
       </div>
       <div className="w-full px-4 grid grid-cols-[minmax(0,75%),minmax(0,25%)] gap-x-6 max-[1200px]:flex flex-col">
         <div className="mt-[15px] flex flex-col gap-y-7">
-          {animeInfo?.charactersVoiceActors.length > 0 && (
+          {animeInfo?.charactersVoiceActors?.length > 0 && (
             <Voiceactor animeInfo={animeInfo} className="!mt-0" />
           )}
-          {animeInfo?.recommended_data.length > 0 ? (
+          {animeInfo?.recommended_data?.length > 0 ? (
             <CategoryCard
               label="Recommended for you"
-              data={animeInfo?.recommended_data}
-              limit={animeInfo?.recommended_data.length}
+              data={animeInfo.recommended_data}
+              limit={animeInfo.recommended_data.length}
               showViewMore={false}
             />
           ) : (
