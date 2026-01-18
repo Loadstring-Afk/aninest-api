@@ -64,6 +64,7 @@ export default function Player({
   streamInfo,
 }) {
   const artRef = useRef(null);
+  const iframeRef = useRef(null);
   const leftAtRef = useRef(0);
   const boundKeydownRef = useRef(null);
   const proxy = import.meta.env.VITE_PROXY_URL;
@@ -82,12 +83,11 @@ export default function Player({
     }
   }, [episodeId, episodes]);
 
-  // Check if URL is an iframe embed URL
+  // Check if we should use iframe mode
   useEffect(() => {
     if (streamUrl) {
-      // Check if it's a Megaplay or Vidwish URL (iframe embed)
-      const isEmbedUrl = streamUrl.includes('megaplay.buzz') || streamUrl.includes('vidwish.live');
-      setIsIframeMode(isEmbedUrl);
+      const isMegaplayOrVidwish = streamUrl.includes('megaplay.buzz') || streamUrl.includes('vidwish.live');
+      setIsIframeMode(isMegaplayOrVidwish);
     }
   }, [streamUrl]);
 
@@ -111,42 +111,221 @@ export default function Player({
     }
   }, [streamUrl, intro, outro]);
 
-  const playM3u8 = (video, url, art) => {
-    if (Hls.isSupported()) {
-      if (art.hls) art.hls.destroy();
-      const hls = new Hls();
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      art.hls = hls;
+  // SIMPLE IFRAME MODE FOR MEGAPLAY/VIDWISH
+  useEffect(() => {
+    if (!streamUrl || !artRef.current) return;
 
-      art.on("destroy", () => hls.destroy());
-
-      video.addEventListener("timeupdate", () => {
-        const currentTime = Math.round(video.currentTime);
-        const duration = Math.round(video.duration);
-        if (duration > 0 && currentTime >= duration) {
-          art.pause();
-          if (currentEpisodeIndex < episodes?.length - 1 && autoNext) {
-            playNext(episodes[currentEpisodeIndex + 1].id.match(/ep=(\d+)/)?.[1]);
-          }
-        }
-      });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = url;
-      video.addEventListener("timeupdate", () => {
-        const currentTime = Math.round(video.currentTime);
-        const duration = Math.round(video.duration);
-        if (duration > 0 && currentTime >= duration) {
-          art.pause();
-          if (currentEpisodeIndex < episodes?.length - 1 && autoNext) {
-            playNext(episodes[currentEpisodeIndex + 1].id.match(/ep=(\d+)/)?.[1]);
-          }
-        }
-      });
-    } else {
-      console.log("Unsupported playback format: m3u8");
+    const container = artRef.current;
+    
+    // Clear container
+    while (container.firstChild) {
+      container.removeChild(container.firstChild);
     }
-  };
+
+    // Check if we should use iframe (Megaplay/Vidwish)
+    const useIframe = streamUrl.includes('megaplay.buzz') || streamUrl.includes('vidwish.live');
+    
+    if (useIframe) {
+      // Create iframe for Megaplay/Vidwish
+      const iframe = document.createElement('iframe');
+      iframe.src = streamUrl;
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      iframe.style.background = '#000';
+      iframe.allowFullscreen = true;
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      iframe.title = `Watch ${animeInfo?.title || 'Anime'} Episode ${episodeNum}`;
+      
+      container.appendChild(iframe);
+      iframeRef.current = iframe;
+      
+      return () => {
+        if (iframeRef.current && container.contains(iframeRef.current)) {
+          container.removeChild(iframeRef.current);
+          iframeRef.current = null;
+        }
+      };
+    } else {
+      // Use Artplayer for other streams
+      const iframeUrl = streamInfo?.streamingLink?.iframe;
+      const headers = {
+        referer: iframeUrl ? new URL(iframeUrl).origin + "/" : window.location.origin + "/",
+      };
+
+      let fullscreenRefocusTimeout = null;
+
+      try {
+        if (!container.hasAttribute("tabindex")) container.setAttribute("tabindex", "0");
+        else {
+          const current = parseInt(container.getAttribute("tabindex"), 10);
+          if (isNaN(current) || current < 0) container.setAttribute("tabindex", "0");
+        }
+        container.style.outline = "none";
+      } catch (e) {
+        // ignore
+      }
+
+      const art = new Artplayer({
+        url:
+          m3u8proxy[Math.floor(Math.random() * m3u8proxy?.length)] +
+          encodeURIComponent(streamUrl) +
+          "&headers=" +
+          encodeURIComponent(JSON.stringify(headers)),
+        container: container,
+        type: "m3u8",
+        autoplay: autoPlay,
+        volume: 1,
+        setting: true,
+        playbackRate: true,
+        pip: true,
+        hotkey: false, 
+        fullscreen: true,
+        mutex: true,
+        playsInline: true,
+        lock: true,
+        airplay: true,
+        autoOrientation: true,
+        fastForward: true,
+        aspectRatio: true,
+        moreVideoAttr: {
+          crossOrigin: "anonymous",
+          preload: "none",
+          playsInline: true,
+        },
+        plugins: [
+          artplayerPluginHlsControl({
+            quality: {
+              setting: true,
+              getName: (level) => level.height + "P",
+              title: "Quality",
+              auto: "Auto",
+            },
+          }),
+          artplayerPluginUploadSubtitle(),
+          artplayerPluginChapter({ chapters: createChapters() }),
+        ],
+        subtitle: {
+          style: {
+            color: "#fff",
+            "font-weight": "400",
+            left: "50%",
+            transform: "translateX(-50%)",
+            "margin-bottom": "2rem",
+          },
+          escape: false,
+        },
+        layers: [
+          {
+            name: website_name,
+            html: logo,
+            tooltip: website_name,
+            style: {
+              opacity: 1,
+              position: "absolute",
+              top: "5px",
+              right: "5px",
+              transition: "opacity 0.5s ease-out",
+            },
+          },
+        ],
+        controls: [
+          {
+            html: backward10Icon,
+            position: "right",
+            tooltip: "Backward 10s",
+            click: () => {
+              art.currentTime = Math.max(art.currentTime - 10, 0);
+            },
+          },
+          {
+            html: forward10Icon,
+            position: "right",
+            tooltip: "Forward 10s",
+            click: () => {
+              art.currentTime = Math.min(art.currentTime + 10, art.duration);
+            },
+          },
+        ],
+        icons: {
+          play: playIcon,
+          pause: pauseIcon,
+          setting: settingsIcon,
+          volume: volumeIcon,
+          pip: pipIcon,
+          volumeClose: muteIcon,
+          state: playIconLg,
+          loading: loadingIcon,
+          fullscreenOn: fullScreenOnIcon,
+          fullscreenOff: fullScreenOffIcon,
+        },
+        customType: { 
+          m3u8: (video, url, art) => {
+            if (Hls.isSupported()) {
+              if (art.hls) art.hls.destroy();
+              const hls = new Hls();
+              hls.loadSource(url);
+              hls.attachMedia(video);
+              art.hls = hls;
+              art.on("destroy", () => hls.destroy());
+            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+              video.src = url;
+            }
+          }
+        },
+      });
+
+      // Handle video end for auto-next
+      art.on('video:ended', () => {
+        if (currentEpisodeIndex < episodes?.length - 1 && autoNext) {
+          const nextEp = episodes[currentEpisodeIndex + 1];
+          const epMatch = nextEp.id.match(/ep=(\d+)/);
+          if (epMatch) {
+            playNext(epMatch[1]);
+          }
+        }
+      });
+
+      // Save continue watching
+      art.on('video:timeupdate', () => {
+        leftAtRef.current = Math.floor(art.currentTime);
+      });
+
+      // Cleanup
+      return () => {
+        if (art && art.destroy) {
+          art.destroy(false);
+        }
+        if (fullscreenRefocusTimeout) clearTimeout(fullscreenRefocusTimeout);
+        
+        // Save continue watching
+        try {
+          const continueWatching = JSON.parse(localStorage.getItem("continueWatching")) || [];
+          const newEntry = {
+            id: animeInfo?.id,
+            data_id: animeInfo?.data_id,
+            episodeId,
+            episodeNum,
+            adultContent: animeInfo?.adultContent,
+            poster: animeInfo?.poster,
+            title: animeInfo?.title,
+            japanese_title: animeInfo?.japanese_title,
+            leftAt: leftAtRef.current,
+            updatedAt: Date.now(),
+          };
+
+          if (newEntry.data_id) {
+            const filtered = continueWatching.filter((item) => item.data_id !== newEntry.data_id);
+            filtered.unshift(newEntry);
+            localStorage.setItem("continueWatching", JSON.stringify(filtered));
+          }
+        } catch (err) {
+          console.error("Failed to save continueWatching:", err);
+        }
+      };
+    }
+  }, [streamUrl, streamInfo, autoPlay, autoNext, episodeId, episodes, currentEpisodeIndex, playNext, animeInfo, episodeNum]);
 
   const createChapters = () => {
     const chapters = [];
@@ -159,531 +338,5 @@ export default function Player({
     return chapters;
   };
 
-  const isEditableElement = (el) => {
-    if (!el) return false;
-    const tagName = el.tagName?.toLowerCase();
-    if (tagName === "input" || tagName === "textarea" || el.isContentEditable) return true;
-    if (el.closest) {
-      const editable = el.closest("input, textarea, [contenteditable='true']");
-      return !!editable;
-    }
-    return false;
-  };
-
-  const handleKeydown = (event, art) => {
-    const container = artRef.current;
-    if (!container || !art) return;
-
-    const target = event.target;
-    if (isEditableElement(target)) return;
-
-    const eventIsInsidePlayer =
-      container.contains(target) || container.contains(document.activeElement);
-
-    if (!eventIsInsidePlayer) return;
-
-    const code = event.code;
-
-    switch (code) {
-      case KEY_CODES.M:
-        art.muted = !art.muted;
-        break;
-      case KEY_CODES.I:
-        art.pip = !art.pip;
-        break;
-      case KEY_CODES.F: {
-        event.preventDefault();
-        event.stopPropagation();
-
-        const container = artRef.current;
-        const doc = document;
-        const fsEl =
-          doc.fullscreenElement ||
-          doc.webkitFullscreenElement ||
-          doc.mozFullScreenElement ||
-          doc.msFullscreenElement;
-
-        if (fsEl && (fsEl === container || container.contains(fsEl))) {
-          if (doc.exitFullscreen) doc.exitFullscreen();
-          else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
-          else if (doc.mozCancelFullScreen) doc.mozCancelFullScreen();
-          else if (doc.msExitFullscreen) doc.msExitFullscreen();
-        } else {
-          if (container.requestFullscreen) container.requestFullscreen();
-          else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
-          else if (container.mozRequestFullScreen) container.mozRequestFullScreen();
-          else if (container.msRequestFullscreen) container.msRequestFullscreen();
-        }
-
-        try {
-          art.fullscreen = !art.fullscreen;
-        } catch (e) {
-          // ignore if art not available
-        }
-        break;
-      }
-      case KEY_CODES.V:
-        event.preventDefault();
-        event.stopPropagation();
-        art.subtitle.show = !art.subtitle.show;
-        break;
-      case KEY_CODES.SPACE:
-      case KEY_CODES.SPACE_LEGACY:
-        event.preventDefault();
-        event.stopPropagation();
-        art.playing ? art.pause() : art.play();
-        break;
-      case KEY_CODES.ARROW_UP:
-        event.preventDefault();
-        event.stopPropagation();
-        art.volume = Math.min(art.volume + 0.1, 1);
-        break;
-      case KEY_CODES.ARROW_DOWN:
-        event.preventDefault();
-        event.stopPropagation();
-        art.volume = Math.max(art.volume - 0.1, 0);
-        break;
-      case KEY_CODES.ARROW_RIGHT:
-        event.preventDefault();
-        event.stopPropagation();
-        art.currentTime = Math.min(art.currentTime + 10, art.duration);
-        break;
-      case KEY_CODES.ARROW_LEFT:
-        event.preventDefault();
-        event.stopPropagation();
-        art.currentTime = Math.max(art.currentTime - 10, 0);
-        break;
-      default:
-        break;
-    }
-  };
-
-  useEffect(() => {
-    if (!streamUrl || !artRef.current) return;
-
-    // If it's an iframe URL (Megaplay/Vidwish), handle it differently
-    if (isIframeMode) {
-      const container = artRef.current;
-      
-      // Clear any existing content
-      while (container.firstChild) {
-        container.removeChild(container.firstChild);
-      }
-      
-      // Create iframe
-      const iframe = document.createElement('iframe');
-      iframe.src = streamUrl;
-      iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      iframe.style.border = 'none';
-      iframe.style.background = 'black';
-      iframe.allowFullscreen = true;
-      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
-      
-      container.appendChild(iframe);
-      
-      // Cleanup
-      return () => {
-        if (container.contains(iframe)) {
-          container.removeChild(iframe);
-        }
-      };
-    }
-
-    // Original Artplayer setup for m3u8 streams
-    const iframeUrl = streamInfo?.streamingLink?.iframe;
-    const headers = {
-      referer: iframeUrl ? new URL(iframeUrl).origin + "/" : window.location.origin + "/",
-    };
-
-    const container = artRef.current;
-    let fullscreenRefocusTimeout = null;
-
-    try {
-      if (!container.hasAttribute("tabindex")) container.setAttribute("tabindex", "0");
-      else {
-        const current = parseInt(container.getAttribute("tabindex"), 10);
-        if (isNaN(current) || current < 0) container.setAttribute("tabindex", "0");
-      }
-      container.style.outline = "none";
-    } catch (e) {
-      // ignore
-    }
-
-    const art = new Artplayer({
-      url:
-        m3u8proxy[Math.floor(Math.random() * m3u8proxy?.length)] +
-        encodeURIComponent(streamUrl) +
-        "&headers=" +
-        encodeURIComponent(JSON.stringify(headers)),
-      container: artRef.current,
-      type: "m3u8",
-      autoplay: autoPlay,
-      volume: 1,
-      setting: true,
-      playbackRate: true,
-      pip: true,
-      hotkey: false, 
-      fullscreen: true,
-      mutex: true,
-      playsInline: true,
-      lock: true,
-      airplay: true,
-      autoOrientation: true,
-      fastForward: true,
-      aspectRatio: true,
-      moreVideoAttr: {
-        crossOrigin: "anonymous",
-        preload: "none",
-        playsInline: true,
-      },
-      plugins: [
-        artplayerPluginHlsControl({
-          quality: {
-            setting: true,
-            getName: (level) => level.height + "P",
-            title: "Quality",
-            auto: "Auto",
-          },
-        }),
-        artplayerPluginUploadSubtitle(),
-        artplayerPluginChapter({ chapters: createChapters() }),
-      ],
-      subtitle: {
-        style: {
-          color: "#fff",
-          "font-weight": "400",
-          left: "50%",
-          transform: "translateX(-50%)",
-          "margin-bottom": "2rem",
-        },
-        escape: false,
-      },
-      layers: [
-        {
-          name: website_name,
-          html: logo,
-          tooltip: website_name,
-          style: {
-            opacity: 1,
-            position: "absolute",
-            top: "5px",
-            right: "5px",
-            transition: "opacity 0.5s ease-out",
-          },
-        },
-        {
-          html: "",
-          style: {
-            position: "absolute",
-            left: "50%",
-            top: 0,
-            width: "20%",
-            height: "100%",
-            transform: "translateX(-50%)",
-          },
-          disable: !Artplayer.utils.isMobile,
-          click: () => art.toggle(),
-        },
-        {
-          name: "rewind",
-          html: "",
-          style: { position: "absolute", left: 0, top: 0, width: "40%", height: "100%" },
-          disable: !Artplayer.utils.isMobile,
-          click: () => {
-            art.controls.show = !art.controls.show;
-          },
-        },
-        {
-          name: "forward",
-          html: "",
-          style: { position: "absolute", right: 0, top: 0, width: "40%", height: "100%" },
-          disable: !Artplayer.utils.isMobile,
-          click: () => {
-            art.controls.show = !art.controls.show;
-          },
-        },
-        {
-          name: "backwardIcon",
-          html: backwardIcon,
-          style: {
-            position: "absolute",
-            left: "25%",
-            top: "50%",
-            transform: "translate(50%,-50%)",
-            opacity: 0,
-            transition: "opacity 0.5s ease-in-out",
-          },
-          disable: !Artplayer.utils.isMobile,
-        },
-        {
-          name: "forwardIcon",
-          html: forwardIcon,
-          style: {
-            position: "absolute",
-            right: "25%",
-            top: "50%",
-            transform: "translate(50%, -50%)",
-            opacity: 0,
-            transition: "opacity 0.5s ease-in-out",
-          },
-          disable: !Artplayer.utils.isMobile,
-        },
-      ],
-      controls: [
-        {
-          html: backward10Icon,
-          position: "right",
-          tooltip: "Backward 10s",
-          click: () => {
-            art.currentTime = Math.max(art.currentTime - 10, 0);
-          },
-        },
-        {
-          html: forward10Icon,
-          position: "right",
-          tooltip: "Forward 10s",
-          click: () => {
-            art.currentTime = Math.min(art.currentTime + 10, art.duration);
-          },
-        },
-      ],
-      icons: {
-        play: playIcon,
-        pause: pauseIcon,
-        setting: settingsIcon,
-        volume: volumeIcon,
-        pip: pipIcon,
-        volumeClose: muteIcon,
-        state: playIconLg,
-        loading: loadingIcon,
-        fullscreenOn: fullScreenOnIcon,
-        fullscreenOff: fullScreenOffIcon,
-      },
-      customType: { m3u8: playM3u8 },
-    });
-
-    art.on("resize", () => {
-      art.subtitle.style({
-        fontSize: (art.width > 500 ? art.width * 0.02 : art.width * 0.03) + "px",
-      });
-    });
-
-    const refocusIfNeeded = (delay = 30) => {
-      try {
-        if (!container) return;
-        const active = document.activeElement;
-        if (!container.contains(active)) {
-          fullscreenRefocusTimeout = setTimeout(() => {
-            try {
-              container.focus();
-            } catch (e) {
-              // ignore
-            }
-          }, delay);
-        }
-      } catch (e) {
-        // ignore
-      }
-    };
-
-    const onFullscreenChange = () => {
-      if (!document.fullscreenElement && !document.webkitIsFullScreen && !document.mozFullScreen && !document.msFullscreenElement) {
-        refocusIfNeeded(40);
-      } else {
-        refocusIfNeeded(20);
-      }
-    };
-
-    // vendor event wrappers
-    const fullscreenEvents = [
-      "fullscreenchange",
-      "webkitfullscreenchange",
-      "mozfullscreenchange",
-      "MSFullscreenChange",
-    ];
-    fullscreenEvents.forEach((ev) => document.addEventListener(ev, onFullscreenChange));
-
-    art.on("ready", () => {
-      try {
-        container.focus();
-      } catch (e) {
-        // ignore
-      }
-
-      const continueWatchingList = JSON.parse(localStorage.getItem("continueWatching")) || [];
-      const currentEntry = continueWatchingList.find((item) => item.episodeId === episodeId);
-      if (currentEntry?.leftAt) art.currentTime = currentEntry.leftAt;
-
-      art.on("video:timeupdate", () => {
-        leftAtRef.current = Math.floor(art.currentTime);
-      });
-
-      setTimeout(() => {
-        art.layers[website_name].style.opacity = 0;
-      }, 2000);
-
-      const subs = (subtitles || []).map((s) => ({ ...s }));
-
-      for (const sub of subs) {
-        const encodedUrl = encodeURIComponent(sub.file);
-        const encodedHeaders = encodeURIComponent(JSON.stringify(headers));
-        sub.file = `${proxy}${encodedUrl}&headers=${encodedHeaders}`;
-      }
-
-      const defaultSubtitle = subs?.find((sub) => sub.label.toLowerCase() === "english");
-      if (defaultSubtitle) {
-        art.subtitle.switch(defaultSubtitle.file, {
-          name: defaultSubtitle.label,
-          default: true,
-        });
-      }
-
-      const skipRanges = [
-        ...(intro?.start != null && intro?.end != null ? [[intro.start + 1, intro.end - 1]] : []),
-        ...(outro?.start != null && outro?.end != null ? [[outro.start + 1, outro.end]] : []),
-      ];
-      autoSkipIntro && art.plugins.add(autoSkip(skipRanges));
-
-      const boundKeydown = (event) => handleKeydown(event, art);
-      boundKeydownRef.current = boundKeydown;
-      document.addEventListener("keydown", boundKeydown);
-
-      const focusOnPointerDown = () => {
-        try {
-          container.focus();
-        } catch (err) {
-          // ignore
-        }
-      };
-      container.addEventListener("pointerdown", focusOnPointerDown, { passive: true });
-
-      const onWindowFocus = () => refocusIfNeeded(30);
-      window.addEventListener("focus", onWindowFocus);
-
-      art.on("destroy", () => {
-        try {
-          document.removeEventListener("keydown", boundKeydown);
-        } catch (e) {}
-        try {
-          container.removeEventListener("pointerdown", focusOnPointerDown);
-        } catch (e) {}
-        try {
-          window.removeEventListener("focus", onWindowFocus);
-        } catch (e) {}
-      });
-
-      art.subtitle.style({
-        fontSize: (art.width > 500 ? art.width * 0.02 : art.width * 0.03) + "px",
-      });
-
-      if (thumbnail) {
-        art.plugins.add(
-          artplayerPluginVttThumbnail({
-            vtt: `${proxy}${thumbnail}`,
-          })
-        );
-      }
-
-      const $rewind = art.layers["rewind"];
-      const $forward = art.layers["forward"];
-      Artplayer.utils.isMobile &&
-        art.proxy($rewind, "dblclick", () => {
-          art.currentTime = Math.max(0, art.currentTime - 10);
-          art.layers["backwardIcon"].style.opacity = 1;
-          setTimeout(() => {
-            art.layers["backwardIcon"].style.opacity = 0;
-          }, 300);
-        });
-      Artplayer.utils.isMobile &&
-        art.proxy($forward, "dblclick", () => {
-          art.currentTime = Math.max(0, art.currentTime + 10);
-          art.layers["forwardIcon"].style.opacity = 1;
-          setTimeout(() => {
-            art.layers["forwardIcon"].style.opacity = 0;
-          }, 300);
-        });
-
-      if (subs?.length > 0) {
-        const defaultEnglishSub =
-          subs.find((sub) => sub.label.toLowerCase() === "english" && sub.default) ||
-          subs.find((sub) => sub.label.toLowerCase() === "english");
-
-        art.setting.add({
-          name: "captions",
-          icon: captionIcon,
-          html: "Subtitle",
-          tooltip: defaultEnglishSub?.label || "default",
-          position: "right",
-          selector: [
-            {
-              html: "Display",
-              switch: true,
-              onSwitch: (item) => {
-                item.tooltip = item.switch ? "Hide" : "Show";
-                art.subtitle.show = !item.switch;
-                return !item.switch;
-              },
-            },
-            ...subs.map((sub) => ({
-              default: sub.label.toLowerCase() === "english" && sub === defaultEnglishSub,
-              html: sub.label,
-              url: sub.file,
-            })),
-          ],
-          onSelect: (item) => {
-            art.subtitle.switch(item.url, { name: item.html });
-            return item.html;
-          },
-        });
-      }
-    });
-
-    return () => {
-      if (art && art.destroy) {
-        art.destroy(false);
-      }
-
-      fullscreenEvents.forEach((ev) => document.removeEventListener(ev, onFullscreenChange));
-      if (boundKeydownRef.current) {
-        try {
-          document.removeEventListener("keydown", boundKeydownRef.current);
-        } catch (e) {}
-        boundKeydownRef.current = null;
-      }
-      if (fullscreenRefocusTimeout) clearTimeout(fullscreenRefocusTimeout);
-
-      try {
-        const continueWatching = JSON.parse(localStorage.getItem("continueWatching")) || [];
-        const newEntry = {
-          id: animeInfo?.id,
-          data_id: animeInfo?.data_id,
-          episodeId,
-          episodeNum,
-          adultContent: animeInfo?.adultContent,
-          poster: animeInfo?.poster,
-          title: animeInfo?.title,
-          japanese_title: animeInfo?.japanese_title,
-          leftAt: leftAtRef.current,
-          updatedAt: Date.now(),
-        };
-
-        if (!newEntry.data_id) return;
-
-        const filtered = continueWatching.filter((item) => item.data_id !== newEntry.data_id);
-        filtered.unshift(newEntry);
-        localStorage.setItem("continueWatching", JSON.stringify(filtered));
-      } catch (err) {
-        console.error("Failed to save continueWatching:", err);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamUrl, subtitles, intro, outro, isIframeMode]);
-
-  // If we're in iframe mode, render a simple container
-  if (isIframeMode) {
-    return <div ref={artRef} className="w-full h-full bg-black" />;
-  }
-
-  return <div ref={artRef} className="w-full h-full" />;
+  return <div ref={artRef} className="w-full h-full bg-black" />;
 }
