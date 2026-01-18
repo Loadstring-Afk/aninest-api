@@ -4,8 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import getAnimeInfo from "@/src/utils/getAnimeInfo.utils";
 import getEpisodes from "@/src/utils/getEpisodes.utils";
 import getNextEpisodeSchedule from "../utils/getNextEpisodeSchedule.utils";
-import getServers from "../utils/getServers.utils";
-import getStreamInfo from "../utils/getStreamInfo.utils";
 
 export const useWatch = (animeId, initialEpisodeId) => {
   const [error, setError] = useState(null);
@@ -26,13 +24,14 @@ export const useWatch = (animeId, initialEpisodeId) => {
   const [episodeId, setEpisodeId] = useState(null);
   const [activeEpisodeNum, setActiveEpisodeNum] = useState(null);
   const [activeServerId, setActiveServerId] = useState(null);
-  const [activeServerType, setActiveServerType] = useState(null);
+  const [activeServerType, setActiveServerType] = useState("sub");
   const [activeServerName, setActiveServerName] = useState(null);
   const [serverLoading, setServerLoading] = useState(true);
   const [nextEpisodeSchedule, setNextEpisodeSchedule] = useState(null);
-  const isServerFetchInProgress = useRef(false);
-  const isStreamFetchInProgress = useRef(false);
 
+  /* =========================
+     RESET ON ANIME CHANGE
+  ========================= */
   useEffect(() => {
     setEpisodes(null);
     setEpisodeId(null);
@@ -52,27 +51,32 @@ export const useWatch = (animeId, initialEpisodeId) => {
     setSeasons(null);
     setTotalEpisodes(null);
     setAnimeInfoLoading(true);
-    isServerFetchInProgress.current = false;
-    isStreamFetchInProgress.current = false;
   }, [animeId]);
 
+  /* =========================
+     FETCH ANIME + EPISODES
+  ========================= */
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         setAnimeInfoLoading(true);
+
         const [animeData, episodesData] = await Promise.all([
           getAnimeInfo(animeId, false),
           getEpisodes(animeId),
         ]);
+
         setAnimeInfo(animeData?.data);
         setSeasons(animeData?.seasons);
         setEpisodes(episodesData?.episodes);
         setTotalEpisodes(episodesData?.totalEpisodes);
+
         const newEpisodeId =
           initialEpisodeId ||
-          (episodesData?.episodes?.length > 0
+          (episodesData?.episodes?.length
             ? episodesData.episodes[0].id.match(/ep=(\d+)/)?.[1]
             : null);
+
         setEpisodeId(newEpisodeId);
       } catch (err) {
         console.error("Error fetching initial data:", err);
@@ -81,9 +85,13 @@ export const useWatch = (animeId, initialEpisodeId) => {
         setAnimeInfoLoading(false);
       }
     };
+
     fetchInitialData();
   }, [animeId]);
 
+  /* =========================
+     NEXT EPISODE SCHEDULE
+  ========================= */
   useEffect(() => {
     const fetchNextEpisodeSchedule = async () => {
       try {
@@ -93,166 +101,109 @@ export const useWatch = (animeId, initialEpisodeId) => {
         console.error("Error fetching next episode schedule:", err);
       }
     };
+
     fetchNextEpisodeSchedule();
   }, [animeId]);
 
+  /* =========================
+     ACTIVE EPISODE NUMBER
+  ========================= */
   useEffect(() => {
     if (!episodes || !episodeId) {
       setActiveEpisodeNum(null);
       return;
     }
-    const activeEpisode = episodes.find((episode) => {
-      const match = episode.id.match(/ep=(\d+)/);
+
+    const activeEpisode = episodes.find(ep => {
+      const match = ep.id.match(/ep=(\d+)/);
       return match && match[1] === episodeId;
     });
-    const newActiveEpisodeNum = activeEpisode ? activeEpisode.episode_no : null;
-    if (activeEpisodeNum !== newActiveEpisodeNum) {
-      setActiveEpisodeNum(newActiveEpisodeNum);
-    }
+
+    setActiveEpisodeNum(activeEpisode?.episode_no ?? null);
   }, [episodeId, episodes]);
 
+  /* =========================
+     SET STATIC IFRAME SERVERS
+  ========================= */
   useEffect(() => {
-    if (!episodeId || !episodes || isServerFetchInProgress.current) return;
+    if (!episodeId) return;
 
-    let mounted = true;
-    const controller = new AbortController();
-    isServerFetchInProgress.current = true;
     setServerLoading(true);
 
-    const fetchServers = async () => {
-      try {
-        const data = await getServers(animeId, episodeId, { signal: controller.signal });
-        if (!mounted) return;
+    const serverList = [
+      {
+        serverName: "Megaplay",
+        domain: "https://megaplay.buzz",
+        type: "sub",
+        data_id: "megaplay-sub",
+      },
+      {
+        serverName: "Megaplay",
+        domain: "https://megaplay.buzz",
+        type: "dub",
+        data_id: "megaplay-dub",
+      },
+      {
+        serverName: "Vidwish",
+        domain: "https://vidwish.live",
+        type: "sub",
+        data_id: "vidwish-sub",
+      },
+      {
+        serverName: "Vidwish",
+        domain: "https://vidwish.live",
+        type: "dub",
+        data_id: "vidwish-dub",
+      },
+    ];
 
-        const filteredServers = data?.filter(
-          (server) =>
-            server.serverName === "HD-1" ||
-            server.serverName === "HD-2" ||
-            // server.serverName === "HD-3" ||
-            server.serverName === "Vidstreaming" ||
-            server.serverName === "Vidcloud" ||
-            server.serverName === "DouVideo"
-        ) || [];
+    const savedName = localStorage.getItem("server_name");
+    const savedType = localStorage.getItem("server_type");
 
-        let serversList = [...filteredServers];
+    const initialServer =
+      serverList.find(
+        s => s.serverName === savedName && s.type === savedType
+      ) ||
+      serverList.find(s => s.type === savedType) ||
+      serverList[0];
 
-        if (serversList.some((s) => s.type === "sub")) {
-          if (!serversList.some((s) => s.serverName === "HD-4" && s.type === "sub")) {
-            serversList.push({
-              type: "sub",
-              data_id: "69696968",
-              server_id: "41",
-              serverName: "HD-4",
-            });
-          }
-        }
+    setServers(serverList);
+    setActiveServerId(initialServer.data_id);
+    setActiveServerName(initialServer.serverName);
+    setActiveServerType(initialServer.type);
 
-        if (serversList.some((s) => s.type === "dub")) {
-          if (!serversList.some((s) => s.serverName === "HD-4" && s.type === "dub")) {
-            serversList.push({
-              type: "dub",
-              data_id: "96969696",
-              server_id: "42",
-              serverName: "HD-4",
-            });
-          }
-        }
+    setServerLoading(false);
+  }, [episodeId]);
 
-        const savedServerName = localStorage.getItem("server_name");
-        const savedServerType = localStorage.getItem("server_type");
-
-        const initialServer =
-          serversList.find(s => s.serverName === savedServerName && s.type === savedServerType) ||
-          serversList.find(s => s.serverName === savedServerName) ||
-          serversList.find(
-            s =>
-              s.type === savedServerType &&
-              ["HD-1", "HD-2", "HD-3", "HD-4", "Vidstreaming", "Vidcloud", "DouVideo"].includes(s.serverName)
-          ) ||
-          serversList[0];
-
-        setServers(serversList);
-        setActiveServerType(initialServer?.type);
-        setActiveServerName(initialServer?.serverName);
-        setActiveServerId(initialServer?.data_id);
-      } catch (err) {
-        if (err?.name === "AbortError") return;
-        console.error("Error fetching servers:", err);
-        if (mounted) setError(err.message || "An error occurred.");
-      } finally {
-        if (mounted) {
-          setServerLoading(false);
-          isServerFetchInProgress.current = false;
-        }
-      }
-    };
-
-    fetchServers();
-
-    return () => {
-      mounted = false;
-      try { controller.abort(); } catch (e) {
-        // console.log(e.message);
-      }
-      isServerFetchInProgress.current = false;
-    };
-  }, [episodeId, episodes]);
-
-  // Fetch stream info only when episodeId, activeServerId, and servers are ready
+  /* =========================
+     BUILD EMBED STREAM URL
+  ========================= */
   useEffect(() => {
-    if (
-      !episodeId ||
-      !activeServerId ||
-      !servers ||
-      isServerFetchInProgress.current ||
-      isStreamFetchInProgress.current
-    )
-      return;
-    const iframeServers = [];
-    // const iframeServers = ["hd-1", "hd-4", "vidstreaming", "vidcloud", "douvideo"];
+    if (!episodeId || !activeServerId || !servers) return;
 
-    if (iframeServers.includes(activeServerName?.toLowerCase()) && !serverLoading) {
+    setBuffering(true);
+
+    const server = servers.find(s => s.data_id === activeServerId);
+    if (!server) {
+      setError("Invalid server selected");
       setBuffering(false);
       return;
     }
-    const fetchStreamInfo = async () => {
-      isStreamFetchInProgress.current = true;
-      setBuffering(true);
-      try {
-        const server = servers.find((srv) => srv.data_id === activeServerId);
-        if (server) {
-          const data = await getStreamInfo(
-            animeId,
-            episodeId,
-            server.serverName.toLowerCase()==="hd-3"?"hd-1":server.serverName.toLowerCase(),
-            server.type.toLowerCase()
-          );
-          setStreamInfo(data);
-          setStreamUrl(data?.streamingLink?.link?.file || null);
-          setIntro(data?.streamingLink?.intro || null);
-          setOutro(data?.streamingLink?.outro || null);
-          const subtitles =
-            data?.streamingLink?.tracks
-              ?.filter((track) => track.kind === "captions")
-              .map(({ file, label }) => ({ file, label })) || [];
-          setSubtitles(subtitles);
-          const thumbnailTrack = data?.streamingLink?.tracks?.find(
-            (track) => track.kind === "thumbnails" && track.file
-          );
-          if (thumbnailTrack) setThumbnail(thumbnailTrack.file);
-        } else {
-          setError("No server found with the activeServerId.");
-        }
-      } catch (err) {
-        console.error("Error fetching stream info:", err);
-        setError(err.message || "An error occurred.");
-      } finally {
-        setBuffering(false);
-        isStreamFetchInProgress.current = false;
-      }
-    };
-    fetchStreamInfo();
-  }, [episodeId, activeServerId, servers]);
+
+    const embedUrl = `${server.domain}/stream/s-2/${episodeId}/${activeServerType}`;
+
+    setStreamUrl(embedUrl);
+    setStreamInfo({ embed: true });
+    setSubtitles([]);
+    setIntro(null);
+    setOutro(null);
+    setThumbnail(null);
+
+    localStorage.setItem("server_name", server.serverName);
+    localStorage.setItem("server_type", activeServerType);
+
+    setBuffering(false);
+  }, [episodeId, activeServerId, activeServerType, servers]);
 
   return {
     error,
